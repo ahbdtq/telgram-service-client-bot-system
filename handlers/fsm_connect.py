@@ -25,24 +25,47 @@ class Form(StatesGroup):
 
 
 async def connect_user(query: types.CallbackQuery, state: FSMContext):
-    await Form.chat_data.set()
-    await state.update_data(chat_data=query)
+    async def create_connection(query: types.CallbackQuery, state: FSMContext):
+        await Form.chat_data.set()
+        await state.update_data(chat_data=query)
 
-    if query.message.bot.data["bot"] == 'CLIENT_BOT':
-        event_id = query.message.caption.split(f'\n')[1]
-        event_title = event_id[event_id.find(':') + 1:]
-        text_ = f"Вы вошли в чат с владельцем события:{event_title}"
-        keyboard = keyb.keyboard_reply_get(keyb.KEYBOARD_CHAT)
+        if query.message.bot.data["bot"] == 'CLIENT_BOT':
+            event_id = query.message.caption.split(f'\n')[1]
+            event_title = event_id[event_id.find(':') + 1:]
+            text_ = f"Вы вошли в чат с владельцем события:{event_title}"
+            keyboard = keyb.keyboard_reply_get(keyb.KEYBOARD_CHAT)
+        else:
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard.add(f"❌Выйти из чата c:" + query.message.html_text.split('\n')[1].split(':')[0])
+            text_ = f"Вы вошли в чат с:" + query.message.html_text.split('\n')[1].split(':')[0]
+        return text_,keyboard
+
+
+    if not bool(await state.get_data()):
+        text_, keyboard = await create_connection(query, state)
     else:
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        keyboard.add(f"❌Выйти из чата c:" + query.message.html_text.split('\n')[1].split(':')[0])
-        text_ = f"Вы вошли в чат с:" + query.message.html_text.split('\n')[1].split(':')[0]
+        state_data = await state.get_data()
+        if query.message.bot.data["bot"] == 'CLIENT_BOT':
+            event_id = state_data['chat_data'].message.caption.split(f'\n')[1]
+            old_query_name = "владельцем события: "+event_id[event_id.find(':') + 1:]
+            event_id = query.message.caption.split(f'\n')[1]
+            new_query_name = "владельцем события: "+event_id[event_id.find(':') + 1:]
+        else:
+            old_query_name = ": " + state_data['chat_data'].message.html_text.split('\n')[1].split(':')[0]
+            new_query_name = ": " + query.message.html_text.split('\n')[1].split(':')[0]
+
+        if old_query_name == new_query_name:
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard.add(f"❌Выйти из чата c " + new_query_name)
+            text_ = f"Вы уже в чате с " + new_query_name
+        else:
+            await state.finish()
+            text_, keyboard = await create_connection(query, state)
 
     await query.message.answer(
         text_,
         reply_markup=keyboard
     )
-
 
 async def connect_cancel(message: types.Message, state: FSMContext):
     """
@@ -211,8 +234,8 @@ def register_handlers_connect(dp: Dispatcher):
         Text(startswith='❌Выйти из чата', ignore_case=True),
         state='*'
     )
-    dp.register_callback_query_handler(connect_user, lambda callback: callback.data.split('_')[0] == 'answeruser')
-    dp.register_callback_query_handler(connect_user, lambda c: c.data == 'connect_owner')
+    dp.register_callback_query_handler(connect_user, lambda c: c.data.split('_')[0] == 'answeruser', state='*')
+    dp.register_callback_query_handler(connect_user, lambda c: c.data == 'connect_owner', state='*')
 
     dp.register_message_handler(show_event, lambda message: message.text == "Посмотреть событие", state=Form.chat_data)
     dp.register_message_handler(forward_text, content_types=ContentType.TEXT, state=Form.chat_data)
